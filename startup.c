@@ -21,10 +21,10 @@ void (* volatile _VectorsRam[NVIC_NUM_INTERRUPTS+16])(void);
 
 static void memory_copy(uint32_t *dest, const uint32_t *src, uint32_t *dest_end);
 static void memory_clear(uint32_t *dest, uint32_t *dest_end);
-//static void configure_systick(void);
+static void configure_systick(void);
 static void reset_PFD();
 extern void systick_isr(void);
-//extern void pendablesrvreq_isr(void);
+extern void pendablesrvreq_isr(void);
 void configure_cache(void);
 void configure_external_ram(void);
 void unused_interrupt_vector(void);
@@ -48,6 +48,43 @@ FLASHMEM void startup_default_late_hook(void) {}
 void startup_late_hook(void)	__attribute__ ((weak, alias("startup_default_late_hook")));
 extern void startup_debug_reset(void) __attribute__((noinline));
 FLASHMEM void startup_debug_reset(void) { __asm__ volatile("nop"); }
+
+
+
+// ARM SysTick is used for most Ardiuno timing functions, delay(), millis(),
+// micros().  SysTick can run from either the ARM core clock, or from an
+// "external" clock.  NXP documents it as "24 MHz XTALOSC can be the external
+// clock source of SYSTICK" (RT1052 ref manual, rev 1, page 411).  However,
+// NXP actually hid an undocumented divide-by-240 circuit in the hardware, so
+// the external clock is really 100 kHz.  We use this clock rather than the
+// ARM clock, to allow SysTick to maintain correct timing even when we change
+// the ARM clock to run at different speeds.
+#define SYSTICK_EXT_FREQ 100000
+
+volatile uint32_t systick_millis_count = 0;
+volatile uint32_t systick_cycle_count = 0;
+volatile uint32_t systick_safe_read = 0; // micros() synchronization
+void systick_isr(void)
+{
+	systick_cycle_count = ARM_DWT_CYCCNT;
+	systick_millis_count++;
+}
+
+extern volatile uint32_t systick_cycle_count;
+static void configure_systick(void)
+{
+    // xxx - not about this. its implemented in cpp, looks like some kind of
+    // deferred work, or scheduling, or prioritization (?)
+    //        _VectorsRam[14] = pendablesrvreq_isr;
+    	_VectorsRam[15] = systick_isr;
+	SYST_RVR = (SYSTICK_EXT_FREQ / 1000) - 1;
+	SYST_CVR = 0;
+	SYST_CSR = SYST_CSR_TICKINT | SYST_CSR_ENABLE;
+	SCB_SHPR3 = 0x20200000;  // Systick, pendablesrvreq_isr = priority 32;
+	ARM_DEMCR |= ARM_DEMCR_TRCENA;
+	ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA; // turn on cycle counter
+	systick_cycle_count = ARM_DWT_CYCCNT; // compiled 0, corrected w/1st systick
+}
 
 FLASHMEM void reset_PFD()
 {	
@@ -114,7 +151,7 @@ static void ResetHandler2(void)
 	printf("test %d %d %d\n", 1, -1234567, 3);
 
 	configure_cache();
-        //	configure_systick();
+        configure_systick();
 	//usb_pll_start();	
 	reset_PFD(); //TODO: is this really needed?
 #ifdef F_CPU
@@ -188,31 +225,6 @@ void ResetHandler(void)
 	__asm__ volatile("isb":::"memory");
 	ResetHandler2();
 	__builtin_unreachable();
-}
-
-
-// ARM SysTick is used for most Ardiuno timing functions, delay(), millis(),
-// micros().  SysTick can run from either the ARM core clock, or from an
-// "external" clock.  NXP documents it as "24 MHz XTALOSC can be the external
-// clock source of SYSTICK" (RT1052 ref manual, rev 1, page 411).  However,
-// NXP actually hid an undocumented divide-by-240 circuit in the hardware, so
-// the external clock is really 100 kHz.  We use this clock rather than the
-// ARM clock, to allow SysTick to maintain correct timing even when we change
-// the ARM clock to run at different speeds.
-#define SYSTICK_EXT_FREQ 100000
-
-extern volatile uint32_t systick_cycle_count;
-static void configure_systick(void)
-{
-    //	_VectorsRam[14] = pendablesrvreq_isr;
-    //	_VectorsRam[15] = systick_isr;
-	SYST_RVR = (SYSTICK_EXT_FREQ / 1000) - 1;
-	SYST_CVR = 0;
-	SYST_CSR = SYST_CSR_TICKINT | SYST_CSR_ENABLE;
-	SCB_SHPR3 = 0x20200000;  // Systick, pendablesrvreq_isr = priority 32;
-	ARM_DEMCR |= ARM_DEMCR_TRCENA;
-	ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA; // turn on cycle counter
-	systick_cycle_count = ARM_DWT_CYCCNT; // compiled 0, corrected w/1st systick
 }
 
 
