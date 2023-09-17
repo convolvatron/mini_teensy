@@ -17,7 +17,7 @@ STARTUP = startup_ARMCM7.S
 LDSCRIPTS=-L. -T imxrt1062_t41.ld
 LFLAGS=$(USE_NANO) $(USE_NOHOST) $(LDSCRIPTS) $(GC) $(MAP) -nostdlib
 
-SOURCES = $(NAME).c digital.c delay.c bootdata.c startup.c
+SOURCES = $(NAME).c digital.c delay.c bootdata.c startup.c usb/usb.c
 $(NAME).axf: $(SOURCES) $(STARTUP)
 	$(CC) $^ $(CFLAGS) $(LFLAGS) -o $@
 
